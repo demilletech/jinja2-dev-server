@@ -3,7 +3,7 @@ from distutils.core import setup
 
 setup(
     name='jinja2-dev-server',
-    version="0.0.4",
+    version="0.0.5",
     author="Eamonn Nugent",
     author_email="eamonn.nugent@demilletech.net",
     packages=['jinja2_dev_server'],

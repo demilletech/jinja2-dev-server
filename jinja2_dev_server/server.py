@@ -3,28 +3,28 @@ import json
 
 import jinja2
 from flask import Flask
-from flask import request, render_template
+from flask import request, render_template, send_from_directory, abort
 
 templates = {}
 variables = {}
 
 debug = False
 
-app = Flask(__name__)
-my_loader = jinja2.ChoiceLoader([
-    app.jinja_loader,
-    jinja2.FileSystemLoader([os.getcwd()]),
-])
-app.jinja_loader = my_loader
+app = Flask(__name__, static_folder="./")
 
 cwd = os.getcwd()
+dirs = ["./"]
 
 
-def run_server(dirs, variables_file, debug_opt):
+def run_server(dirs_opt, variables_file, debug_opt):
     global debug
+    global dirs
     debug = debug_opt
-    if type(dirs) == str:
-        dirs = [dirs]
+    if isinstance(dirs_opt, str):
+        dirs_opt = [dirs_opt]
+    dirs = dirs_opt
+    if debug:
+        print("Given directories:", dirs)
     for directory in dirs:
         read_files(directory)
 
@@ -39,37 +39,67 @@ def read_variables(variables_file):
             variables = json.load(f)
 
 
-def read_files(dir):
+def read_files(filedir, prefix=""):
     global debug
-    thisdir = os.getcwd()
+    if not filedir.startswith("/"):
+        filedir = os.path.join(os.getcwd(), filedir)
+
+    if debug:
+        print("Searching", filedir)
 
     # r=root, d=directories, f = files
-    for r, d, f in os.walk(thisdir):
+    for r, d, f in os.walk(filedir):
         for file in f:
             if debug:
-                print(file)
+                print("Found file:", file)
             if ".jinja2" in file:
                 if debug:
-                    print("Found " + file)
+                    print(file, "is a jinja2 file")
 
                 filepath = os.path.join(r, file)
 
-                templates[file[:file.find(".")]] = filepath[len(cwd) + 1:]
+                templpath = os.path.join(prefix, file[:file.find(".")])
+
+                templates[templpath] = filepath[len(filedir) + 1:]
 
     if len(templates) == 0:
         raise Exception("No files found")
     if debug:
-        print(templates)
+        print("Templates table: ", templates)
 
 
 def start_flask_server():
+    global dirs
+    my_loader = jinja2.ChoiceLoader([
+        app.jinja_loader,
+        jinja2.FileSystemLoader(dirs),
+    ])
+    app.jinja_loader = my_loader
+    print("Template directories:", dirs)
+
     app.run(debug=True)
 
 
 @app.route('/<path:path>')
 def serve_template(path):
+    global dirs
+    filename = path[path.rfind("/") + 1:]
+    filedir = path[:path.rfind("/") + 1]
     if debug:
-        print(path, path in templates)
+        print("Filename:", filename)
+        print("Filedir: ", filedir)
+
+    if debug:
+        print("Is", path, "in templates?", path in templates)
     if path in templates:
-        return render_template(templates[path], **variables)
-    return 404
+        # HEY GUESS WHAT THIS IS RELATIVE TO CURRENT NOT TO TEMPLATE DIRECTORY YOU GENIUS
+        for directory in dirs:
+            if os.path.exists(os.path.join(directory, templates[path])):
+                return render_template(templates[path], **variables)
+
+    file_exists = os.path.exists(os.path.join(filedir, filename))
+    if debug:
+        print("Does", path, "exist?", file_exists)
+    if file_exists:
+        return send_from_directory(os.path.join(cwd, filedir), filename)
+    abort(404)
